@@ -46,7 +46,7 @@ public class CipherStorageKeystoreRsaEcbTests {
   public TestName methodName = new TestName();
   /** Mock all the dependencies. */
   @Rule
-  public MockitoRule mockDependencies = MockitoJUnit.rule();
+  public MockitoRule mockDependencies = MockitoJUnit.rule().silent();
   @Rule
   public VerificationCollector collector = MockitoJUnit.collector();
 

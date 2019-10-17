@@ -25,6 +25,7 @@ import org.junit.runner.RunWith;
 import org.mockito.Mockito;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
+import org.mockito.junit.VerificationCollector;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
@@ -51,7 +52,9 @@ public class KeychainModuleTests {
   public TestName methodName = new TestName();
   /** Mock all the dependencies. */
   @Rule
-  public MockitoRule mockDependencies = MockitoJUnit.rule();
+  public MockitoRule mockDependencies = MockitoJUnit.rule().silent();
+  @Rule
+  public VerificationCollector collector = MockitoJUnit.collector();
   /** Security fake provider. */
   private FakeProvider provider = new FakeProvider();
 
