@@ -38,27 +38,26 @@ repositories {
   mavenCentral()
 }
 
+configurations {
+  repack { transitive = false }
+}
+
 dependencies {
+  // include re-packed facebook conceal lib
+  implementation fileTree(dir: "${buildDir}/intermediates/repack", include: ["*-repack.aar"])
+
   implementation 'com.facebook.react:react-native:+'
-
-  /* https://github.com/facebook/conceal/releases */
-  implementation "com.facebook.conceal:conceal:2.0.1@aar"
-//  implementation 'com.facebook.conceal:conceal:1.1.3@aar'
-
-  // Android Support Library:
-  //  implementation "com.android.support:support-annotations:28.0.0"
-
   implementation 'androidx.appcompat:appcompat:1.1.0'
   implementation 'androidx.legacy:legacy-support-v4:1.0.0'
-
-  /* https://androidx.tech/artifacts/biometric/biometric/ */
   implementation 'androidx.biometric:biometric:1.0.0-rc01'
+
+  /* https://github.com/facebook/conceal/releases */
+  repack "com.facebook.conceal:conceal:2.0.2"
 
   //
   // Biometric source code:
   //   https://android.googlesource.com/platform/frameworks/support/+/refs/heads/androidx-master-dev/biometric/src/main/java/androidx/biometric
   //
-
 
   /* Unit Testing Frameworks */
   testImplementation "junit:junit:4.12"
@@ -72,3 +71,47 @@ dependencies {
   /* http://robolectric.org/getting-started/ */
   testImplementation("org.robolectric:robolectric:4.3.1")
 }
+
+task repackConceal(dependsOn: configurations.repack) {
+  def concealVersion = configurations.repack.allDependencies.first().version
+  def generation = "${project.buildDir}/intermediates/repack"
+  def conceal = "com.facebook.conceal@${concealVersion}"
+  def destination = "${generation}/${conceal}"
+
+  doLast {
+    copy {
+      from { zipTree(configurations.repack.singleFile) }
+      into "${destination}"
+    }
+
+    copy {
+      from zipTree("${destination}/classes.jar")
+      into "${destination}/classes"
+    }
+  }
+
+  task recreateConcealClassesJar(type: Zip) {
+    archiveFileName = "classes-patched.jar"
+    destinationDirectory = file("${destination}")
+    from("${destination}/classes") {
+      exclude '**/facebook/jni/'
+      exclude '**/facebook/proguard/'
+      exclude '**/facebook/soloader/'
+    }
+  }
+
+  task recreateConcealAar(type: Zip, dependsOn: recreateConcealClassesJar) {
+    archiveFileName = "com.facebook.conceal-${concealVersion}-repack.aar"
+    destinationDirectory = file("${generation}")
+    from("${destination}") {
+      exclude '**/jni/*/libfb.so'
+      exclude '**/classes'
+      exclude 'classes.jar'
+      rename('classes-patched.jar', 'classes.jar')
+    }
+  }
+
+  finalizedBy recreateConcealAar
+}
+
+build.dependsOn(repackConceal)

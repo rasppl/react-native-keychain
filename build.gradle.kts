@@ -37,7 +37,7 @@ allprojects {
       }
 
       when ("${requested.group}:${requested.name}") {
-        "com.facebook.react:react-native" -> useVersion("0.57.1")
+        "com.facebook.react:react-native" -> useVersion("0.61.2")
         "com.facebook.soloader:soloader" -> useVersion("0.6.+")
       }
     }
