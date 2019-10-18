@@ -1,6 +1,6 @@
 package com.oblador.keychain.cipherStorage;
 
-import android.annotation.TargetApi;
+import android.annotation.SuppressLint;
 import android.app.KeyguardManager;
 import android.content.Context;
 import android.os.Build;
@@ -34,7 +34,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.crypto.NoSuchPaddingException;
 
 /** Fingerprint biometry protected storage. */
-@TargetApi(Build.VERSION_CODES.M)
 @SuppressWarnings({"unused", "WeakerAccess"})
 public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
   //region Constants
@@ -110,6 +109,7 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
   }
 
   @Override
+  @SuppressLint("NewApi")
   public void decrypt(@NonNull DecryptionResultHandler handler,
                       @NonNull String alias,
                       @NonNull byte[] username,
@@ -207,7 +207,13 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
   /** Get builder for encryption and decryption operations with required user Authentication. */
   @NonNull
   @Override
-  protected KeyGenParameterSpec.Builder getKeyGenSpecBuilder(@NonNull final String alias) {
+  @SuppressLint("NewApi")
+  protected KeyGenParameterSpec.Builder getKeyGenSpecBuilder(@NonNull final String alias)
+    throws GeneralSecurityException {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+      throw new KeyStoreAccessException("Unsupported API" + Build.VERSION.SDK_INT + " version detected.");
+    }
+
     final int purposes = KeyProperties.PURPOSE_DECRYPT | KeyProperties.PURPOSE_ENCRYPT;
 
     return new KeyGenParameterSpec.Builder(alias, purposes)
@@ -223,6 +229,10 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
   @NonNull
   @Override
   protected KeyInfo getKeyInfo(@NonNull final Key key) throws GeneralSecurityException {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+      throw new KeyStoreAccessException("Unsupported API" + Build.VERSION.SDK_INT + " version detected.");
+    }
+
     final KeyFactory factory = KeyFactory.getInstance(key.getAlgorithm(), KEYSTORE_TYPE);
 
     return factory.getKeySpec(key, KeyInfo.class);
@@ -232,6 +242,10 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
   @NonNull
   @Override
   protected Key generateKey(@NonNull final KeyGenParameterSpec spec) throws GeneralSecurityException {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+      throw new KeyStoreAccessException("Unsupported API" + Build.VERSION.SDK_INT + " version detected.");
+    }
+
     final KeyPairGenerator generator = KeyPairGenerator.getInstance(getEncryptionAlgorithm(), KEYSTORE_TYPE);
     generator.initialize(spec);
 
