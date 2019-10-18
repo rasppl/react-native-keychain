@@ -153,14 +153,17 @@ android {
     variant.outputs.each { output ->
       // For each separate APK per architecture, set a unique version code as described here:
       // http://tools.android.com/tech-docs/new-build-system/user-guide/apk-splits
-      def versionCodes = ["armeabi-v7a": 1, "x86": 2]
-      def abi = output.getFilter(OutputFile.ABI)
+      def versionCodes = ["armeabi-v7a": 1, "x86": 2, "arm64-v8a": 3, "x86_64": 4]
+      def abi = output.getFilter(com.android.build.OutputFile.ABI)
       if (abi != null) {  // null for the universal-debug, universal-release variants
-        output.versionCodeOverride =
-          versionCodes.get(abi) * 1048576 + defaultConfig.versionCode
+        // abi * 0x100000 + ( 0 < versionCode <= 1048575 )
+        // armeabi-v7a  => range: [0x100000 : 0x1FFFFF]
+        // x86          => range: [0x200000 : 0x2FFFFF]
+        output.versionCodeOverride = (versionCodes.get(abi) << 20) + defaultConfig.versionCode
       }
     }
   }
+
 
   packagingOptions {
     pickFirst '**/armeabi-v7a/libc++_shared.so'

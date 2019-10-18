@@ -114,4 +114,4 @@ task repackConceal(dependsOn: configurations.repack) {
   finalizedBy recreateConcealAar
 }
 
-build.dependsOn(repackConceal)
+preBuild.dependsOn(repackConceal)

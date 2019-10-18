@@ -78,6 +78,7 @@ public class KeychainModule extends ReactContextBaseJavaModule {
 
   /** {@inheritDoc} */
   @Override
+  @NonNull
   public String getName() {
     return KEYCHAIN_MODULE;
   }

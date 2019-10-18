@@ -23,6 +23,7 @@ import java.nio.charset.Charset;
 import java.security.GeneralSecurityException;
 import java.security.Key;
 import java.security.KeyStore;
+import java.security.ProviderException;
 import java.security.UnrecoverableKeyException;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -266,17 +267,21 @@ abstract public class CipherStorageBase implements CipherStorage {
     cipher.init(Cipher.ENCRYPT_MODE, key);
 
     // encrypt the value using a CipherOutputStream
-    try (final ByteArrayOutputStream output = new ByteArrayOutputStream();
-         final CipherOutputStream encrypt = new CipherOutputStream(output, cipher)) {
-
+    try (final ByteArrayOutputStream output = new ByteArrayOutputStream()) {
       // write initialization vector to the beginning of the stream
       if (null != handler) {
-        handler.initialize(cipher, output);
+        handler.initialize(cipher, key, output);
+        output.flush();
       }
 
-      encrypt.write(value.getBytes(UTF8));
+      try (final CipherOutputStream encrypt = new CipherOutputStream(output, cipher)) {
+        encrypt.write(value.getBytes(UTF8));
+      }
 
       return output.toByteArray();
+    } catch (Throwable fail) {
+      Log.e(LOG_TAG, fail.getMessage(), fail);
+      throw fail;
     }
   }
 
@@ -289,7 +294,6 @@ abstract public class CipherStorageBase implements CipherStorage {
 
     // decrypt the bytes using a CipherInputStream
     try (ByteArrayInputStream in = new ByteArrayInputStream(bytes);
-         CipherInputStream decrypt = new CipherInputStream(in, cipher);
          ByteArrayOutputStream output = new ByteArrayOutputStream()) {
 
       // read the initialization vector from the beginning of the stream
@@ -297,10 +301,16 @@ abstract public class CipherStorageBase implements CipherStorage {
         handler.initialize(cipher, key, in);
       }
 
-      copy(decrypt, output);
-      return new String(output.toByteArray(), UTF8);
-    }
+      try (CipherInputStream decrypt = new CipherInputStream(in, cipher)) {
+        copy(decrypt, output);
+      }
 
+      return new String(output.toByteArray(), UTF8);
+    } catch (Throwable fail) {
+      Log.w(LOG_TAG, fail.getMessage(), fail);
+
+      throw fail;
+    }
   }
 
   /** Get the most secured keystore */
@@ -315,7 +325,7 @@ abstract public class CipherStorageBase implements CipherStorage {
 
     try {
       secretKey = tryGenerateStrongBoxSecurityKey(alias);
-    } catch (GeneralSecurityException ex) {
+    } catch (GeneralSecurityException | ProviderException ex) {
       Log.w(LOG_TAG, "StrongBox security storage is not available.", ex);
 
       // If that is not possible, we generate the key in a regular way
@@ -401,7 +411,7 @@ abstract public class CipherStorageBase implements CipherStorage {
     public static final int IV_LENGTH = 16;
 
     /** Save Initialization vector to output stream. */
-    public static final EncryptStringHandler encrypt = (cipher, output) -> {
+    public static final EncryptStringHandler encrypt = (cipher, key, output) -> {
       final byte[] iv = cipher.getIV();
       output.write(iv, 0, iv.length);
     };
@@ -439,7 +449,7 @@ abstract public class CipherStorageBase implements CipherStorage {
 
   /** Handler for storing cipher configuration in output stream. */
   public interface EncryptStringHandler {
-    void initialize(@NonNull final Cipher cipher, @NonNull final OutputStream output)
+    void initialize(@NonNull final Cipher cipher, @NonNull final Key key, @NonNull final OutputStream output)
       throws IOException;
   }
 
