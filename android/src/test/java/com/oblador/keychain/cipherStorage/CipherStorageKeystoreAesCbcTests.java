@@ -63,7 +63,7 @@ public class CipherStorageKeystoreAesCbcTests {
   @Test
   @Config(sdk = Build.VERSION_CODES.M)
   public void testGetSecurityLevel_api23() throws Exception {
-    final CipherStorageKeystoreRsaEcb instance = new CipherStorageKeystoreRsaEcb(getRNContext());
+    final CipherStorageKeystoreRsaEcb instance = new CipherStorageKeystoreRsaEcb();
     final Key mock = Mockito.mock(SecretKey.class);
 
     final SecurityLevel level = instance.getSecurityLevel(mock);
