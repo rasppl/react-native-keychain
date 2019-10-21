@@ -69,10 +69,21 @@ public interface CipherStorage {
     }
   }
 
+  /** Get access to the results of decryption via properties. */
+  interface WithResults {
+    /** Get reference on results. */
+    @Nullable
+    DecryptionResult getResult();
+
+    /** Get reference on capture error. */
+    @Nullable
+    Throwable getError();
+  }
+
   /** Handler that allows to inject some actions during decrypt operations. */
-  interface DecryptionResultHandler {
+  interface DecryptionResultHandler extends WithResults {
     /** Ask user for interaction, often its unlock of keystore by biometric data providing. */
-    void askAccessPermissions(@NonNull final DecryptionContext context) throws CryptoFailedException;
+    void askAccessPermissions(@NonNull final DecryptionContext context);
 
     /**
      *
@@ -103,6 +114,7 @@ public interface CipherStorage {
                            @NonNull final SecurityLevel level)
     throws CryptoFailedException;
 
+  /** Decrypt the credentials but redirect results of operation to handler. */
   void decrypt(@NonNull final DecryptionResultHandler handler,
                @NonNull final String alias,
                @NonNull final byte[] username,

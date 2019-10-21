@@ -120,13 +120,13 @@ public class CipherStorageFacebookConceal extends CipherStorageBase {
     }
   }
 
+  /** redirect call to default {@link #decrypt(String, byte[], byte[], SecurityLevel)} method. */
   @Override
   public void decrypt(@NonNull DecryptionResultHandler handler,
                       @NonNull String service,
                       @NonNull byte[] username,
                       @NonNull byte[] password,
-                      @NonNull final SecurityLevel level)
-    throws CryptoFailedException {
+                      @NonNull final SecurityLevel level) {
 
     try {
       final DecryptionResult results = decrypt(service, username, password, level);

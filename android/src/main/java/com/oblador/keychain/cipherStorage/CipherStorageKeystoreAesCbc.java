@@ -1,5 +1,6 @@
 package com.oblador.keychain.cipherStorage;
 
+import android.annotation.TargetApi;
 import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyInfo;
@@ -25,7 +26,7 @@ import javax.crypto.SecretKeyFactory;
  * @see <a href="https://proandroiddev.com/secure-data-in-android-initialization-vector-6ca1c659762c">Secure Data in Android</a>
  * @see <a href="https://stackoverflow.com/questions/36827352/android-aes-with-keystore-produces-different-cipher-text-with-same-plain-text">AES cipher</a>
  */
-//@TargetApi(Build.VERSION_CODES.M)
+@TargetApi(Build.VERSION_CODES.M)
 @SuppressWarnings({"unused", "WeakerAccess"})
 public class CipherStorageKeystoreAesCbc extends CipherStorageBase {
   //region Constants
@@ -140,14 +141,20 @@ public class CipherStorageKeystoreAesCbc extends CipherStorageBase {
     }
   }
 
+  /** Redirect call to {@link #decrypt(String, byte[], byte[], SecurityLevel)} method. */
   @Override
   public void decrypt(@NonNull final DecryptionResultHandler handler,
                       @NonNull final String service,
                       @NonNull final byte[] username,
                       @NonNull final byte[] password,
-                      @NonNull final SecurityLevel level)
-    throws CryptoFailedException {
-    handler.onDecrypt(decrypt(service, username, password, level), null);
+                      @NonNull final SecurityLevel level) {
+    try {
+      final DecryptionResult results = decrypt(service, username, password, level);
+
+      handler.onDecrypt(results, null);
+    } catch (Throwable fail) {
+      handler.onDecrypt(null, fail);
+    }
   }
   //endregion
 
@@ -205,7 +212,7 @@ public class CipherStorageKeystoreAesCbc extends CipherStorageBase {
   //region Initialization Vector encrypt/decrypt support
   @NonNull
   @Override
-  protected byte[] encryptString(@NonNull final Key key, @NonNull final String value)
+  public byte[] encryptString(@NonNull final Key key, @NonNull final String value)
     throws GeneralSecurityException, IOException {
 
     return encryptString(key, value, IV.encrypt);
@@ -213,10 +220,9 @@ public class CipherStorageKeystoreAesCbc extends CipherStorageBase {
 
   @NonNull
   @Override
-  protected String decryptBytes(@NonNull final Key key, @NonNull final byte[] bytes)
+  public String decryptBytes(@NonNull final Key key, @NonNull final byte[] bytes)
     throws GeneralSecurityException, IOException {
     return decryptBytes(key, bytes, IV.decrypt);
   }
   //endregion
-
 }

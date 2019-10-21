@@ -52,7 +52,7 @@ dependencies {
   implementation 'androidx.biometric:biometric:1.0.0-rc01'
 
   /* https://github.com/facebook/conceal/releases */
-  repack "com.facebook.conceal:conceal:2.0.2"
+  repack "com.facebook.conceal:conceal:1.1.3@aar"
 
   //
   // Biometric source code:

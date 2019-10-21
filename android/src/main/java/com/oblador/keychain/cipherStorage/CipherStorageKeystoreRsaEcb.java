@@ -1,8 +1,6 @@
 package com.oblador.keychain.cipherStorage;
 
 import android.annotation.SuppressLint;
-import android.app.KeyguardManager;
-import android.content.Context;
 import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyInfo;
@@ -11,8 +9,9 @@ import android.security.keystore.UserNotAuthenticatedException;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 
-import com.facebook.react.bridge.ReactContext;
 import com.oblador.keychain.SecurityLevel;
 import com.oblador.keychain.exceptions.CryptoFailedException;
 import com.oblador.keychain.exceptions.KeyStoreAccessException;
@@ -27,6 +26,7 @@ import java.security.KeyStore;
 import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
+import java.security.cert.Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import javax.crypto.NoSuchPaddingException;
 
 /** Fingerprint biometry protected storage. */
+@RequiresApi(api = Build.VERSION_CODES.M)
 @SuppressWarnings({"unused", "WeakerAccess"})
 public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
   //region Constants
@@ -52,24 +53,6 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
   public static final int ENCRYPTION_KEY_SIZE = 3072;
   //endregion
 
-  //region Members
-  /** Reference on the application context. */
-  private final ReactContext reactContext;
-  /** Reference on keyguard manager service. */
-  private final KeyguardManager keyguardManager;
-  //endregion
-
-  /** Main constructor. */
-  public CipherStorageKeystoreRsaEcb(@NonNull final ReactContext reactContext) {
-    this.reactContext = reactContext;
-
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-      keyguardManager = null;
-    } else {
-      keyguardManager = (KeyguardManager) reactContext.getSystemService(Context.KEYGUARD_SERVICE);
-    }
-  }
-
   //region Overrides
   @Override
   @NonNull
@@ -84,7 +67,7 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
     final String safeService = getDefaultAliasIfEmpty(alias);
 
     try {
-      return innerEncryptedCredentials(username, password, safeService);
+      return innerEncryptedCredentials(safeService, password, username, level);
 
       // KeyStoreException | KeyStoreAccessException  | NoSuchAlgorithmException | InvalidKeySpecException |
       //    IOException | NoSuchPaddingException | InvalidKeyException e
@@ -107,9 +90,16 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
                                   @NonNull final SecurityLevel level)
     throws CryptoFailedException {
 
-    throwIfInsufficientLevel(level);
+    final NonInteractiveHandler handler = new NonInteractiveHandler();
+    decrypt(handler, alias, username, password, level);
 
-    throw new AssertionError("Not implemented");
+    CryptoFailedException.reThrowOnError(handler.getError());
+
+    if (null == handler.getResult()) {
+      throw new CryptoFailedException("No decryption results and no error. Something deeply wrong!");
+    }
+
+    return handler.getResult();
   }
 
   @Override
@@ -137,14 +127,17 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
         decryptBytes(key, username),
         decryptBytes(key, password)
       );
+
       handler.onDecrypt(results, null);
-    } catch (UserNotAuthenticatedException ex) {
+    } catch (final UserNotAuthenticatedException ex) {
       Log.d(LOG_TAG, "Unlock of keystore is needed. Error: " + ex.getMessage(), ex);
 
       // expected that KEY instance is extracted and we caught exception on decryptBytes operation
-      @SuppressWarnings("ConstantConditions") final DecryptionContext context = new DecryptionContext(safeAlias, key, password, username);
+      @SuppressWarnings("ConstantConditions") final DecryptionContext context =
+        new DecryptionContext(safeAlias, key, password, username);
+
       handler.askAccessPermissions(context);
-    } catch (Throwable fail) {
+    } catch (final Throwable fail) {
       // any other exception treated as a failure
       handler.onDecrypt(null, fail);
     }
@@ -191,14 +184,22 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
 
   /** Clean code without try/catch's that encrypt username and password with a key specified by alias. */
   @NonNull
-  private EncryptionResult innerEncryptedCredentials(@NonNull final String username,
+  private EncryptionResult innerEncryptedCredentials(@NonNull final String alias,
                                                      @NonNull final String password,
-                                                     @NonNull final String alias)
+                                                     @NonNull final String username,
+                                                     @NonNull final SecurityLevel level)
     throws GeneralSecurityException, IOException {
 
     final KeyStore store = getKeyStoreAndLoad();
+
+    // on first access create a key for storage
+    if (!store.containsAlias(alias)) {
+      generateKeyAndStoreUnderAlias(alias, level);
+    }
+
     final KeyFactory kf = KeyFactory.getInstance(ALGORITHM_RSA);
-    final PublicKey publicKey = store.getCertificate(alias).getPublicKey();
+    final Certificate certificate = store.getCertificate(alias);
+    final PublicKey publicKey = certificate.getPublicKey();
     final X509EncodedKeySpec keySpec = new X509EncodedKeySpec(publicKey.getEncoded());
     final PublicKey key = kf.generatePublic(keySpec);
 
@@ -256,5 +257,41 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
     return generator.generateKeyPair().getPrivate();
   }
 
+  //endregion
+
+  //region Nested classes
+
+  /** Non interactive handler for decrypting the credentials. */
+  public static class NonInteractiveHandler implements DecryptionResultHandler {
+    private DecryptionResult result;
+    private Throwable error;
+
+    @Override
+    public void askAccessPermissions(@NonNull final DecryptionContext context) {
+      final CryptoFailedException failure = new CryptoFailedException(
+        "Non interactive decryption mode.");
+
+      onDecrypt(null, failure);
+    }
+
+    @Override
+    public void onDecrypt(@Nullable final DecryptionResult decryptionResult,
+                          @Nullable final Throwable error) {
+      this.result = decryptionResult;
+      this.error = error;
+    }
+
+    @Nullable
+    @Override
+    public DecryptionResult getResult() {
+      return result;
+    }
+
+    @Nullable
+    @Override
+    public Throwable getError() {
+      return error;
+    }
+  }
   //endregion
 }

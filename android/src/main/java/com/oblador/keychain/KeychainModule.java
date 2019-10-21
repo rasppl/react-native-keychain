@@ -6,6 +6,8 @@ import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.biometric.BiometricPrompt;
+import androidx.fragment.app.FragmentActivity;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
@@ -16,17 +18,23 @@ import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
 import com.oblador.keychain.PrefsStorage.ResultSet;
 import com.oblador.keychain.cipherStorage.CipherStorage;
+import com.oblador.keychain.cipherStorage.CipherStorage.DecryptionContext;
 import com.oblador.keychain.cipherStorage.CipherStorage.DecryptionResult;
+import com.oblador.keychain.cipherStorage.CipherStorage.DecryptionResultHandler;
 import com.oblador.keychain.cipherStorage.CipherStorage.EncryptionResult;
+import com.oblador.keychain.cipherStorage.CipherStorageBase;
 import com.oblador.keychain.cipherStorage.CipherStorageFacebookConceal;
 import com.oblador.keychain.cipherStorage.CipherStorageKeystoreAesCbc;
 import com.oblador.keychain.cipherStorage.CipherStorageKeystoreRsaEcb;
+import com.oblador.keychain.cipherStorage.CipherStorageKeystoreRsaEcb.NonInteractiveHandler;
 import com.oblador.keychain.exceptions.CryptoFailedException;
 import com.oblador.keychain.exceptions.EmptyParameterException;
 import com.oblador.keychain.exceptions.KeyStoreAccessException;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 import static com.oblador.keychain.SecurityLevel.ANY;
 import static com.oblador.keychain.SecurityLevel.SECURE_HARDWARE;
@@ -71,7 +79,11 @@ public class KeychainModule extends ReactContextBaseJavaModule {
 
     addCipherStorageToMap(new CipherStorageFacebookConceal(reactContext));
     addCipherStorageToMap(new CipherStorageKeystoreAesCbc());
-    addCipherStorageToMap(new CipherStorageKeystoreRsaEcb(reactContext));
+
+    // we have a references to newer api that will fail load of app classes in old androids OS
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+      addCipherStorageToMap(new CipherStorageKeystoreRsaEcb());
+    }
   }
 
   //region Overrides
@@ -169,6 +181,8 @@ public class KeychainModule extends ReactContextBaseJavaModule {
       Log.e(KEYCHAIN_MODULE, e.getMessage());
       promise.reject(Errors.E_CRYPTO_FAILED, e);
     } catch (Throwable fail) {
+      Log.e(KEYCHAIN_MODULE, fail.getMessage(), fail);
+
       promise.reject(Errors.E_UNKNOWN_ERROR, fail);
     }
   }
@@ -195,6 +209,8 @@ public class KeychainModule extends ReactContextBaseJavaModule {
       Log.e(KEYCHAIN_MODULE, e.getMessage());
       promise.reject(Errors.E_KEYSTORE_ACCESS_ERROR, e);
     } catch (Throwable fail) {
+      Log.e(KEYCHAIN_MODULE, fail.getMessage(), fail);
+
       promise.reject(Errors.E_UNKNOWN_ERROR, fail);
     }
   }
@@ -252,6 +268,10 @@ public class KeychainModule extends ReactContextBaseJavaModule {
       Log.e(KEYCHAIN_MODULE, e.getMessage(), e);
 
       promise.reject(Errors.E_SUPPORTED_BIOMETRY_ERROR, e);
+    } catch (Throwable fail) {
+      Log.e(KEYCHAIN_MODULE, fail.getMessage(), fail);
+
+      promise.reject(Errors.E_UNKNOWN_ERROR, fail);
     }
   }
   //endregion
@@ -282,7 +302,16 @@ public class KeychainModule extends ReactContextBaseJavaModule {
 
     // The encrypted data is encrypted using the current CipherStorage, so we just decrypt and return
     if (storageName.equals(current.getCipherStorageName())) {
-      return current.decrypt(alias, resultSet.username, resultSet.password, ANY);
+      final DecryptionResultHandler handler = getInteractiveHandler(current);
+      current.decrypt(handler, alias, resultSet.username, resultSet.password, ANY);
+
+      CryptoFailedException.reThrowOnError(handler.getError());
+
+      if (null == handler.getResult()) {
+        throw new CryptoFailedException("No decryption results and no error. Something deeply wrong!");
+      }
+
+      return handler.getResult();
     }
 
     // The encrypted data is encrypted using an older CipherStorage, so we need to decrypt the data first, then encrypt it using the current CipherStorage, then store it again and return
@@ -303,6 +332,16 @@ public class KeychainModule extends ReactContextBaseJavaModule {
     }
 
     return decryptionResult;
+  }
+
+  /** Get instance of handler that resolves access to the keystore on system request. */
+  @NonNull
+  protected DecryptionResultHandler getInteractiveHandler(@NonNull final CipherStorage current) {
+    if (current.isBiometrySupported() && isFingerprintAuthAvailable()) {
+      return new InteractiveBiometric(current);
+    }
+
+    return new NonInteractiveHandler();
   }
 
   /** Remove key from old storage and add it to the new storage. */
@@ -336,6 +375,8 @@ public class KeychainModule extends ReactContextBaseJavaModule {
     CipherStorage foundCipher = null;
 
     for (CipherStorage variant : cipherStorageMap.values()) {
+      Log.d(KEYCHAIN_MODULE, "Probe cipher storage: " + variant.getClass().getSimpleName());
+
       // Is the cipherStorage supported on the current API level?
       final int minApiLevel = variant.getMinSupportedApiLevel();
       final int capabilityLevel = variant.getCapabilityLevel();
@@ -357,6 +398,8 @@ public class KeychainModule extends ReactContextBaseJavaModule {
     if (foundCipher == null) {
       throw new CryptoFailedException("Unsupported Android SDK " + Build.VERSION.SDK_INT);
     }
+
+    Log.d(KEYCHAIN_MODULE, "Selected storage: " + foundCipher.getClass().getSimpleName());
 
     return foundCipher;
   }
@@ -429,6 +472,102 @@ public class KeychainModule extends ReactContextBaseJavaModule {
   @NonNull
   private String getDefaultServiceIfNull(@Nullable final String service) {
     return service == null ? EMPTY_STRING : service;
+  }
+  //endregion
+
+  //region Nested declarations
+
+  /** Interactive user questioning for biometric data providing. */
+  private class InteractiveBiometric extends BiometricPrompt.AuthenticationCallback implements DecryptionResultHandler {
+    private DecryptionResult result;
+    private Throwable error;
+    private final CipherStorageBase storage;
+    private final Executor executor = Executors.newSingleThreadExecutor();
+    private DecryptionContext context;
+
+    private InteractiveBiometric(@NonNull final CipherStorage storage) {
+      this.storage = (CipherStorageBase) storage;
+    }
+
+    @Override
+    public void askAccessPermissions(@NonNull final DecryptionContext context) {
+      this.context = context;
+
+      if (!DeviceAvailability.isPermissionsGranted(getReactApplicationContext())) {
+        final CryptoFailedException failure = new CryptoFailedException(
+          "Could not start fingerprint Authentication. No permissions granted.");
+
+        onDecrypt(null, failure);
+      } else {
+        startAuthentication();
+      }
+    }
+
+    @Override
+    public void onDecrypt(@Nullable final DecryptionResult decryptionResult, @Nullable final Throwable error) {
+      this.result = decryptionResult;
+      this.error = error;
+    }
+
+    @Nullable
+    @Override
+    public DecryptionResult getResult() {
+      return result;
+    }
+
+    @Nullable
+    @Override
+    public Throwable getError() {
+      return error;
+    }
+
+    /** Called when an unrecoverable error has been encountered and the operation is complete. */
+    @Override
+    public void onAuthenticationError(final int errorCode, @NonNull final CharSequence errString) {
+      final CryptoFailedException error = new CryptoFailedException("code: " + errorCode + ", msg: " + errString);
+
+      onDecrypt(null, error);
+    }
+
+    /** Called when a biometric is recognized. */
+    @Override
+    public void onAuthenticationSucceeded(@NonNull final BiometricPrompt.AuthenticationResult result) {
+      try {
+        if (null == context) throw new NullPointerException("Decrypt context is not assigned yet.");
+
+        final DecryptionResult decrypted = new DecryptionResult(
+          storage.decryptBytes(context.key, context.username),
+          storage.decryptBytes(context.key, context.password)
+        );
+
+        onDecrypt(decrypted, null);
+      } catch (Throwable fail) {
+        onDecrypt(null, fail);
+      }
+    }
+
+    /** Called when a biometric is valid but not recognized. */
+    @Override
+    public void onAuthenticationFailed() {
+      final CryptoFailedException error = new CryptoFailedException("Authentication failed. User Not recognized.");
+
+      onDecrypt(null, error);
+    }
+
+    /** trigger interactive authentication. */
+    public void startAuthentication() {
+      final FragmentActivity activity = (FragmentActivity) getCurrentActivity();
+      if (null == activity) throw new NullPointerException("Not assigned current activity");
+
+      final BiometricPrompt prompt = new BiometricPrompt(activity, executor, this);
+      final BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
+        .setTitle("Authentication required")
+        .setNegativeButtonText("Cancel")
+        .setSubtitle("Please use biometric authentication to unlock the app")
+        .build();
+
+      prompt.authenticate(info);
+    }
   }
   //endregion
 }

@@ -243,18 +243,18 @@ abstract public class CipherStorageBase implements CipherStorage {
 
   /** Default encryption with cipher without initialization vector. */
   @NonNull
-  protected byte[] encryptString(@NonNull final Key key, @NonNull final String value)
+  public byte[] encryptString(@NonNull final Key key, @NonNull final String value)
     throws IOException, GeneralSecurityException {
 
-    return encryptString(key, value, null);
+    return encryptString(key, value, Defaults.encrypt);
   }
 
   /** Default decryption with cipher without initialization vector. */
   @NonNull
-  protected String decryptBytes(@NonNull final Key key, @NonNull final byte[] bytes)
+  public String decryptBytes(@NonNull final Key key, @NonNull final byte[] bytes)
     throws IOException, GeneralSecurityException {
 
-    return decryptBytes(key, bytes, null);
+    return decryptBytes(key, bytes, Defaults.decrypt);
   }
 
   /** Encrypt provided string value. */
@@ -264,10 +264,10 @@ abstract public class CipherStorageBase implements CipherStorage {
     throws IOException, GeneralSecurityException {
 
     final Cipher cipher = Cipher.getInstance(getEncryptionTransformation());
-    cipher.init(Cipher.ENCRYPT_MODE, key);
 
     // encrypt the value using a CipherOutputStream
     try (final ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+
       // write initialization vector to the beginning of the stream
       if (null != handler) {
         handler.initialize(cipher, key, output);
@@ -281,6 +281,7 @@ abstract public class CipherStorageBase implements CipherStorage {
       return output.toByteArray();
     } catch (Throwable fail) {
       Log.e(LOG_TAG, fail.getMessage(), fail);
+
       throw fail;
     }
   }
@@ -404,6 +405,16 @@ abstract public class CipherStorageBase implements CipherStorage {
   //endregion
 
   //region Nested declarations
+  /** Generic cipher initialization. */
+  public static final class Defaults {
+    public static final EncryptStringHandler encrypt = (cipher, key, output) -> {
+      cipher.init(Cipher.ENCRYPT_MODE, key);
+    };
+
+    public static final DecryptBytesHandler decrypt = (cipher, key, input) -> {
+      cipher.init(Cipher.DECRYPT_MODE, key);
+    };
+  }
 
   /** Initialization vector support. */
   public static final class IV {
@@ -412,6 +423,8 @@ abstract public class CipherStorageBase implements CipherStorage {
 
     /** Save Initialization vector to output stream. */
     public static final EncryptStringHandler encrypt = (cipher, key, output) -> {
+      cipher.init(Cipher.ENCRYPT_MODE, key);
+
       final byte[] iv = cipher.getIV();
       output.write(iv, 0, iv.length);
     };
@@ -450,7 +463,7 @@ abstract public class CipherStorageBase implements CipherStorage {
   /** Handler for storing cipher configuration in output stream. */
   public interface EncryptStringHandler {
     void initialize(@NonNull final Cipher cipher, @NonNull final Key key, @NonNull final OutputStream output)
-      throws IOException;
+      throws GeneralSecurityException, IOException;
   }
 
   /** Handler for configuring cipher by initialization data from input stream. */
