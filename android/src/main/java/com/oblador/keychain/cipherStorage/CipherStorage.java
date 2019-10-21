@@ -1,7 +1,5 @@
 package com.oblador.keychain.cipherStorage;
 
-import android.app.Activity;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
@@ -124,8 +122,6 @@ public interface CipherStorage {
 
   /** Remove key (by alias) from storage. */
   void removeKey(@NonNull final String alias) throws KeyStoreAccessException;
-
-  void setCurrentActivity(final Activity activity);
   //endregion
 
   //region Configuration

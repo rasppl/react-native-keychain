@@ -1,6 +1,5 @@
 package com.oblador.keychain.cipherStorage;
 
-import android.app.Activity;
 import android.os.Build;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyInfo;
@@ -53,9 +52,6 @@ abstract public class CipherStorageBase implements CipherStorage {
   public static final Charset UTF8 = Charset.forName("UTF-8");
   //endregion
 
-  @Nullable
-  protected Activity activity;
-
   //region Overrides
 
   /** Hardware supports keystore operations. */
@@ -77,12 +73,6 @@ abstract public class CipherStorageBase implements CipherStorage {
       (1000 * (isBiometrySupported() ? 1 : 0)) + // 0..1000
         (100 * (supportsSecureHardware() ? 1 : 0)) + // 0..100
         (getMinSupportedApiLevel()); // 19..29
-  }
-
-  /** Assign activity to the Cipher context. */
-  @Override
-  public void setCurrentActivity(@Nullable final Activity activity) {
-    this.activity = activity;
   }
 
   /** Try device capabilities by creating temporary key in keystore. */
