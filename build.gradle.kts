@@ -14,6 +14,12 @@ buildscript {
   }
 }
 
+plugins {
+
+  /* https://github.com/radarsh/gradle-test-logger-plugin */
+  id("com.adarshr.test-logger") version "1.7.0" apply false
+}
+
 allprojects {
   repositories {
     mavenLocal()
