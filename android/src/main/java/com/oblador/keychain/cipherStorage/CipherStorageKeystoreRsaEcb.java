@@ -63,7 +63,11 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
   public CipherStorageKeystoreRsaEcb(@NonNull final ReactContext reactContext) {
     this.reactContext = reactContext;
 
-    keyguardManager = (KeyguardManager) reactContext.getSystemService(Context.KEYGUARD_SERVICE);
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+      keyguardManager = null;
+    } else {
+      keyguardManager = (KeyguardManager) reactContext.getSystemService(Context.KEYGUARD_SERVICE);
+    }
   }
 
   //region Overrides
