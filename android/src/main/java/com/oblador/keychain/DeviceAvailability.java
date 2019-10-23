@@ -16,7 +16,6 @@ import static androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS;
  */
 @SuppressWarnings("WeakerAccess")
 public class DeviceAvailability {
-  @SuppressWarnings("deprecation")
   public static boolean isFingerprintAuthAvailable(@NonNull final Context context) {
     return BiometricManager.from(context).canAuthenticate() == BIOMETRIC_SUCCESS;
   }

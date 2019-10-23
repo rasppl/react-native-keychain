@@ -1,6 +1,7 @@
 package com.oblador.keychain;
 
 import android.os.Build;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -558,6 +559,12 @@ public class KeychainModule extends ReactContextBaseJavaModule {
     public void startAuthentication() {
       final FragmentActivity activity = (FragmentActivity) getCurrentActivity();
       if (null == activity) throw new NullPointerException("Not assigned current activity");
+
+      // code can be executed only from MAIN thread
+      if(Thread.currentThread() != Looper.getMainLooper().getThread()){
+        activity.runOnUiThread(this::startAuthentication);
+        return;
+      }
 
       final BiometricPrompt prompt = new BiometricPrompt(activity, executor, this);
       final BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
