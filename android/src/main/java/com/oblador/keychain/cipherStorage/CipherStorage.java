@@ -76,6 +76,9 @@ public interface CipherStorage {
     /** Get reference on capture error. */
     @Nullable
     Throwable getError();
+
+    /** Block thread and wait for any result of execution. */
+    void waitResult();
   }
 
   /** Handler that allows to inject some actions during decrypt operations. */

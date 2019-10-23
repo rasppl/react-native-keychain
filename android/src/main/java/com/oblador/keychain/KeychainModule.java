@@ -11,6 +11,7 @@ import androidx.biometric.BiometricPrompt;
 import androidx.fragment.app.FragmentActivity;
 
 import com.facebook.react.bridge.Arguments;
+import com.facebook.react.bridge.AssertionException;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
@@ -508,6 +509,10 @@ public class KeychainModule extends ReactContextBaseJavaModule {
     public void onDecrypt(@Nullable final DecryptionResult decryptionResult, @Nullable final Throwable error) {
       this.result = decryptionResult;
       this.error = error;
+
+      synchronized (this) {
+        notifyAll();
+      }
     }
 
     @Nullable
@@ -561,8 +566,9 @@ public class KeychainModule extends ReactContextBaseJavaModule {
       if (null == activity) throw new NullPointerException("Not assigned current activity");
 
       // code can be executed only from MAIN thread
-      if(Thread.currentThread() != Looper.getMainLooper().getThread()){
+      if (Thread.currentThread() != Looper.getMainLooper().getThread()) {
         activity.runOnUiThread(this::startAuthentication);
+        waitResult();
         return;
       }
 
@@ -574,6 +580,25 @@ public class KeychainModule extends ReactContextBaseJavaModule {
         .build();
 
       prompt.authenticate(info);
+    }
+
+    /** Block current NON-main thread and wait for user authentication results. */
+    @Override
+    public void waitResult() {
+      if (Thread.currentThread() == Looper.getMainLooper().getThread())
+        throw new AssertionException("method should not be executed from MAIN thread");
+
+      Log.i(KEYCHAIN_MODULE, "blocking thread. waiting for done UI operation.");
+
+      try {
+        synchronized (this) {
+          wait();
+        }
+      } catch (InterruptedException ignored) {
+        /* shutdown sequence */
+      }
+
+      Log.i(KEYCHAIN_MODULE, "unblocking thread.");
     }
   }
   //endregion

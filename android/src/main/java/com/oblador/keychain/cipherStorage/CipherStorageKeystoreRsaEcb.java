@@ -292,6 +292,11 @@ public class CipherStorageKeystoreRsaEcb extends CipherStorageBase {
     public Throwable getError() {
       return error;
     }
+
+    @Override
+    public void waitResult() {
+      /* do nothing, expected synchronized call in one thread */
+    }
   }
   //endregion
 }
