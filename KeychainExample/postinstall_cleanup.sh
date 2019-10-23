@@ -9,3 +9,6 @@ rm -rf node_modules/react-native-keychain/.git
 rm -rf node_modules/react-native-keychain/KeychainExample
 rm -rf node_modules/react-native-keychain/android/build
 find . -type f -name *.iml -delete
+
+
+yarn android:x
