@@ -15,7 +15,11 @@ apply plugin: "com.adarshr.test-logger"
 def safeExtGet(prop, fallback) {
   rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
 }
-def isAndroidX = Boolean.parseBoolean("${project.getProperties()["android.useAndroidX"]}")
+
+/* Is AndroidX forcing enabled. Often defined at `gradle.properties` file. */
+def isAndroidX = Boolean.parseBoolean("${project.properties["android.useAndroidX"]}")
+/* Is compatibility mode needed? By default: enabled. */
+def isCompatibilityAndRepacking = Boolean.parseBoolean("${safeExtGet("react-native-keychain:compatibility", true)}")
 
 android {
   compileSdkVersion safeExtGet('compileSdkVersion', 28)
@@ -61,18 +65,29 @@ configurations {
 dependencies {
   implementation 'com.facebook.react:react-native:+'
 
-  androidx 'androidx.appcompat:appcompat:1.1.0'
-  androidx 'androidx.legacy:legacy-support-v4:1.0.0'
+  //region Compatibility and Re-pack
+  if (isCompatibilityAndRepacking) {
+    androidx 'androidx.appcompat:appcompat:1.1.0'
+    androidx 'androidx.legacy:legacy-support-v4:1.0.0'
 
-  support 'com.android.support:appcompat-v7:28.0.0'
-  support 'com.android.support:support-v4:28.0.0'
+    support 'com.android.support:appcompat-v7:28.0.0'
+    support 'com.android.support:support-v4:28.0.0'
 
-  // include re-packed facebook conceal lib, https://github.com/facebook/conceal/releases
-  repack "com.facebook.conceal:conceal:1.1.3@aar"
+    // include re-packed facebook conceal lib, https://github.com/facebook/conceal/releases
+    repack "com.facebook.conceal:conceal:1.1.3@aar"
 
-  /* https://mvnrepository.com/artifact/androidx.biometric/biometric
-      src: http://bit.ly/31DhLZG */
-  compatibility 'androidx.biometric:biometric:1.0.0-rc01@aar'
+    /* https://mvnrepository.com/artifact/androidx.biometric/biometric
+        src: http://bit.ly/31DhLZG */
+    compatibility 'androidx.biometric:biometric:1.0.0-rc02@aar'
+  }
+  //endregion
+
+  if (!isCompatibilityAndRepacking) {
+    implementation 'androidx.appcompat:appcompat:1.1.0'
+    implementation 'androidx.legacy:legacy-support-v4:1.0.0'
+    implementation 'androidx.biometric:biometric:1.0.0-rc02@aar'
+    implementation "com.facebook.conceal:conceal:1.1.3@aar"
+  }
 
   /* Unit Testing Frameworks */
   testImplementation "junit:junit:4.12"
@@ -87,111 +102,169 @@ dependencies {
   testImplementation("org.robolectric:robolectric:4.3.1")
 }
 
-task repackConceal(dependsOn: configurations.repack) {
-  group = "Workarounds"
-  description = "repack facebook conceal library, exclude soloader sources"
+//region Compatibility & Re-packing
+if (isCompatibilityAndRepacking) {
+  /* Special manipulations that allows to patch files and do backward compatibility with 'Android Support Library' */
+  final def destinationDir = "generated"
+  final def destinationCompatibilityDir = "${project.buildDir}/${destinationDir}/compatibility"
+  final def destinationRepackDir = "${project.buildDir}/${destinationDir}/repack"
+  final def explodedAaaDir = "${project.buildDir}/${destinationDir}/explodedAar"
+  final def libPrefix = isAndroidX ? "androidx" : "support"
 
-  def concealVersion = configurations.repack.allDependencies.first().version
-  def generation = "${project.buildDir}/intermediates/repack"
-  def conceal = "com.facebook.conceal@${concealVersion}"
-  def destination = "${generation}/${conceal}"
-  def outputFileName = "com.facebook.conceal-${concealVersion}-repack"
-  def aarFile = "${outputFileName}.aar"
+  task repackConceal(dependsOn: configurations.repack, type: Zip) {
+    group = "Workarounds"
+    description = "repack facebook conceal library, exclude soloader sources"
 
-  project.repositories {
-    flatDir { dirs generation }
-  }
-  project.dependencies {
-    implementation(name: outputFileName, ext: 'aar')
-  }
+    def concealVersion = configurations.repack.allDependencies.first().version
+    def conceal = "com.facebook.conceal@${concealVersion}"
+    def repackDir = "${destinationRepackDir}/${conceal}"
+    def outputFileName = "com.facebook.conceal-${concealVersion}-repack"
+    def outputAarFile = "${outputFileName}.aar"
+    def outputAarFilePath = "${destinationRepackDir}/${outputAarFile}"
 
-  doLast {
-    copy {
+    task unpackConcealAar(dependsOn: configurations.repack, type: Copy) {
       from { zipTree(configurations.repack.singleFile) }
-      into "${destination}"
+      into "${repackDir}"
+
+      doLast {
+        copy {
+          from zipTree("${repackDir}/classes.jar")
+          into "${repackDir}/classes"
+        }
+      }
     }
 
-    copy {
-      from zipTree("${destination}/classes.jar")
-      into "${destination}/classes"
-    }
-  }
+    task packConcealClasses(dependsOn: configurations.repack, type: Zip) {
+      dependsOn unpackConcealAar
 
-  task recreateConcealClassesJar(type: Zip) {
-    archiveFileName = "classes-patched.jar"
-    destinationDirectory = file("${destination}")
-    from("${destination}/classes") {
-      exclude '**/facebook/jni/'
-      exclude '**/facebook/proguard/'
-      exclude '**/facebook/soloader/'
+      archiveFileName = "classes-patched.jar"
+      destinationDirectory = file("${repackDir}")
+      from("${repackDir}/classes") {
+        exclude '**/facebook/jni/'
+        exclude '**/facebook/proguard/'
+        exclude '**/facebook/soloader/'
+      }
     }
-  }
 
-  task recreateConcealAar(type: Zip, dependsOn: recreateConcealClassesJar) {
-    archiveFileName = aarFile
-    destinationDirectory = file("${generation}")
-    from("${destination}") {
+    dependsOn packConcealClasses
+    archiveFileName = outputAarFile
+    destinationDirectory = file("${destinationRepackDir}")
+    from("${repackDir}") {
       exclude '**/jni/*/libfb.so'
       exclude '**/classes'
       exclude 'classes.jar'
       rename('classes-patched.jar', 'classes.jar')
     }
-  }
 
-  finalizedBy recreateConcealAar
-}
-
-task compatibilityBiometric(dependsOn: [configurations.compatibility, configurations.support, configurations.androidx], type: Copy) {
-  group = "Workarounds"
-  description = "compatibility, remap biometric library to android support instead of androidx"
-
-  def libPrefix = isAndroidX ? "androidx" : "support"
-  def biometricVersion = configurations.compatibility.allDependencies.first().version
-  def destination = "${project.buildDir}/intermediates/compatibility"
-  def inputFile = "biometric-${biometricVersion}.aar"
-  def outputFileName = "biometric-${biometricVersion}-${libPrefix}"
-  def outputFile = "${outputFileName}.aar"
-  def jetifierDir = "${project.projectDir}/../bin/jetifier-standalone"
-  def jetifierConfig = file("${jetifierDir}/biometric-patched.config.json").absolutePath
-  def bin = file("${jetifierDir}/bin").absolutePath
-
-  logger.lifecycle("androidx: ${isAndroidX}, support lib: ${!isAndroidX}")
-
-  project.repositories {
-    flatDir { dirs destination }
-  }
-  project.dependencies {
-    implementation(name: outputFileName, ext: 'aar')
-
-    if (isAndroidX) {
-      implementation configurations.androidx
-    } else {
-      implementation configurations.support
+    doLast {
+      copy {
+        from zipTree(outputAarFilePath)
+        into "${explodedAaaDir}/${outputFileName}/"
+      }
     }
   }
 
-  from { configurations.compatibility.singleFile }
-  into "${destination}"
+  task compatibilityBiometric(type: Exec,
+    dependsOn: [configurations.compatibility, configurations.support, configurations.androidx]) {
+    group = "Workarounds"
+    description = "compatibility, remap biometric library to android support instead of androidx"
 
-  // https://developer.android.com/studio/command-line/jetifier
-  task reverseJetifier(type: Exec) {
+    def biometricVersion = configurations.compatibility.allDependencies.first().version
+    def inputFile = "biometric-${biometricVersion}.aar"
+    def outputFileName = "biometric-${biometricVersion}-${libPrefix}"
+    def outputFile = "${outputFileName}.aar"
+    def jetifierDir = "${project.projectDir}/../bin/jetifier-standalone"
+    def jetifierConfig = file("${jetifierDir}/biometric-patched.config.json").absolutePath
+    def bin = file("${jetifierDir}/bin").absolutePath
+    def inputAarFilePath = "${destinationCompatibilityDir}/${inputFile}"
+    def outputAarFilePath = "${destinationCompatibilityDir}/${outputFile}"
+
+    logger.lifecycle("androidx: ${isAndroidX}, support lib: ${!isAndroidX}")
+    project.dependencies {
+      implementation(isAndroidX ? configurations.androidx : configurations.support)
+    }
+
+    task downloadCompatibilityBiometric(dependsOn: configurations.compatibility, type: Copy) {
+      from { configurations.compatibility.singleFile }
+      into "${destinationCompatibilityDir}"
+    }
+
+    dependsOn downloadCompatibilityBiometric
     outputs.cacheIf { true }
-    outputs.file "${destination}/${outputFile}"
-    inputs.file "${destination}/${inputFile}"
+    outputs.file outputAarFilePath
+    inputs.file inputAarFilePath
 
-    workingDir "${destination}"
+    workingDir "${destinationCompatibilityDir}"
+
+    // https://developer.android.com/studio/command-line/jetifier
     commandLine "${bin}/jetifier-standalone"
     args = [
       (isAndroidX ? "" : "--reversed"),
-      "--input", "${destination}/${inputFile}",
-      "--output", "${destination}/${outputFile}",
+      "--input", inputAarFilePath,
+      "--output", outputAarFilePath,
       "--config", "${jetifierConfig}",
-      "--log", "verbose"
+      "--log", "info"
     ]
+
+    doLast {
+      copy {
+        from zipTree(outputAarFilePath)
+        into "${explodedAaaDir}/${outputFileName}/"
+      }
+    }
   }
 
-  finalizedBy reverseJetifier
+  /* Make our tasks always executed in front of any `build` operation */
+  defaultTasks "repackConceal", "compatibilityBiometric"
+  preBuild.dependsOn([repackConceal, compatibilityBiometric])
+
+  /* Register configurations as artifacts and assign task as a configuration builder. */
+  artifacts {
+    // KeychainExample/node_modules/react-native-keychain/android/
+    //    build/generated/compatibility/biometric-1.0.0-rc02-androidx.aar
+    compatibility file: compatibilityBiometric.outputs.files.singleFile,
+      builtBy: compatibilityBiometric, type: 'aar'
+
+    // KeychainExample/node_modules/react-native-keychain/android/
+    //    build/generated/repack/com.facebook.conceal-1.1.3-repack.aar
+    repack file: repackConceal.outputs.files.singleFile,
+      builtBy: repackConceal, type: 'aar'
+  }
+
+  /* Register our repack and compatibility dirs as repositories */
+  gradle.allprojects {
+    repositories {
+      flatDir(name: "compatibility", dirs: destinationCompatibilityDir)
+      flatDir(name: "repack", dirs: destinationRepackDir)
+    }
+  }
+
+  /* Inject exploded AARs as a compilation sources */
+  android.sourceSets.main { s ->
+    file(explodedAaaDir).mkdirs()
+
+    file(explodedAaaDir).eachDir { dir ->
+      println "~> ${dir}"
+
+      project.dependencies {
+        implementation fileTree(dir: dir, include: ["*.jar"])
+      }
+
+      s.aidl.srcDir "$dir/aidl"
+      s.assets.srcDir "$dir/assets"
+      s.java.srcDir "$dir/java"
+      s.jni.srcDir "$dir/jni"
+      s.jniLibs.srcDir "$dir/jni"
+      s.renderscript.srcDir "$dir/rs"
+      s.res.srcDir "$dir/res"
+    }
+  }
+
+  //gradle.rootProject.subprojects {
+  //  dependencies {
+  //    implementation(name: "com.facebook.conceal-1.1.3-repack", ext: 'aar')
+  //    implementation(name: "biometric-1.0.0-rc02-androidx", ext: 'aar')
+  //  }
+  //}
 }
-
-preBuild.dependsOn([repackConceal, compatibilityBiometric])
-
+//endregion
