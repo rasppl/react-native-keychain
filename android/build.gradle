@@ -19,7 +19,7 @@ def safeExtGet(prop, fallback) {
 /* Is AndroidX forcing enabled. Often defined at `gradle.properties` file. */
 def isAndroidX = Boolean.parseBoolean("${project.properties["android.useAndroidX"]}")
 /* Is compatibility mode needed? By default: enabled. */
-def isCompatibilityAndRepacking = Boolean.parseBoolean("${safeExtGet("react-native-keychain:compatibility", true)}")
+def isCompatibilityAndRepacking = Boolean.parseBoolean("${safeExtGet("react-native-keychain.compatibility", true)}")
 
 android {
   compileSdkVersion safeExtGet('compileSdkVersion', 28)
