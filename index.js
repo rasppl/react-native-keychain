@@ -148,8 +148,7 @@ export function setGenericPassword(
     getOptionsArgument(options),
     username,
     password,
-    getMinimumSecurityLevel(options),
-    getAccessControl(options)
+    getMinimumSecurityLevel(options)
   );
 }
 
