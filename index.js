@@ -136,11 +136,20 @@ export function setGenericPassword(
 ): Promise<false | Result> {
   var obj: { service?: string } = options || {};
 
+  if (Platform.OS !== 'ios') {
+    return RNKeychainManager.setGenericPasswordForOptions(
+      obj.service,
+      username,
+      password,
+      options
+    );
+  }
   return RNKeychainManager.setGenericPasswordForOptions(
-    obj.service,
+    getOptionsArgument(serviceOrOptions),
     username,
     password,
-    options
+    getMinimumSecurityLevel(serviceOrOptions),
+    getAccessControl(serviceOrOptions)
   );
 }
 
