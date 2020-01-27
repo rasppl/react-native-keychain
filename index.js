@@ -145,11 +145,11 @@ export function setGenericPassword(
     );
   }
   return RNKeychainManager.setGenericPasswordForOptions(
-    getOptionsArgument(serviceOrOptions),
+    getOptionsArgument(options),
     username,
     password,
-    getMinimumSecurityLevel(serviceOrOptions),
-    getAccessControl(serviceOrOptions)
+    getMinimumSecurityLevel(options),
+    getAccessControl(options)
   );
 }
 
