@@ -154,7 +154,12 @@ export function getGenericPassword(
 ): Promise<false | SharedWebCredentials> {
   var obj: { service?: string } = options || {};
 
-  return RNKeychainManager.getGenericPasswordForOptions(obj.service, options);
+  if (Platform.OS !== 'ios') {
+    return RNKeychainManager.getGenericPasswordForOptions(obj.service, options);
+  }
+  return RNKeychainManager.getGenericPasswordForOptions(
+    getOptionsArgument(options)
+  );
 }
 
 /**
@@ -165,7 +170,15 @@ export function getGenericPassword(
 export function resetGenericPassword(options?: Options): Promise<boolean> {
   var obj: { service?: string } = options || {};
 
-  return RNKeychainManager.resetGenericPasswordForOptions(obj.service, options);
+  if (Platform.OS !== 'ios') {
+    return RNKeychainManager.resetGenericPasswordForOptions(
+      obj.service,
+      options
+    );
+  }
+  return RNKeychainManager.resetGenericPasswordForOptions(
+    getOptionsArgument(options)
+  );
 }
 
 /**
